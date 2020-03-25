@@ -2,50 +2,28 @@ var http = require('http');
 var fs = require('fs');
 var qs = require('querystring');
 var url = require('url');
+var path = require('path');
+var cookie = require('cookie')
+var template = require('./lib/template.js');
+var sanitizeHtml = require('sanitize-html');
 
-var template = {
-  html:function(title, list, body, isupdate) {
-    return (
-      `  <!doctype html>
-    <html>
-    <head>
-      <title>WEB - ${title}</title>
-      <meta charset="utf-8">
-    </head>
-    <body>
-      <h1><a href="/">WEB</a></h1>
-      ${list}
-      ${isupdate}
-      
-      ${body}
-    </body>
-    </html>`
-    )
-  },list:function (filelist) {
-    var list = '<ul>';
-    var i = 0;
-    while (i < filelist.length) {
-      list = list + `<li><a href="/?id=${filelist[i]}">${filelist[i]}</a></li>`
-      i += 1
-    }
-    list = list + '</ul>';
-    return list;
-  },page:function (title, description, filelist, response, isupdate) {
-    var title = title
-    var list = template.list(filelist);
-    var html =template.html(title, list, `<h2>${title}</h2>${description}`,
-      isupdate ? ` 
-    <a href="/update?id=${title}">update</a>
-    <form action="delete_process" name="deleteform" method="post" >
-    <input type="hidden" name="id" value=${title} />
-    <input type="submit" value="delete"  />
-    </form>
-    ` : `
-    <a href="/create">create</a>`)
-    return (
-      response.writeHead(200),
-      response.end(html)
-    )
+function authIsOwner(request,response){
+  var isOwner = false;
+  var cookies = {};
+  if(request.headers.cookie){
+    cookies = cookie.parse(request.headers.cookie);
+    console.log(cookies)
+  }
+  if(cookies.id === 'beginal' && cookies.password === '111111') {
+    isOwner = true;
+  }
+  return isOwner;
+}
+
+function isLoggedIn(response,isOwner) {
+  if(!isOwner) {
+    response.end('login please!!')
+    return false;
   }
 }
 
@@ -53,22 +31,73 @@ var app = http.createServer(function (request, response) {
   var _url = request.url;
   var queryData = url.parse(_url, true).query;
   var pathname = url.parse(_url, true).pathname;
+  var isOwner = authIsOwner(request,response);
 
   if (pathname === '/') {
     if (queryData.id === undefined) {
 
       fs.readdir('./data', function (err, filelist) {
-        template.page('Welcome', 'Hello Node.js', filelist, response)
+        template.page('Welcome', 'Hello Node.js', filelist, response, !isOwner)
       })
     } else {
+      var filterId = path.parse(queryData.id).base;
       fs.readdir('./data', function (err, filelist) {
-        fs.readFile(`data/${queryData.id}`, 'utf8', function (err, description) {
-          template.page(queryData.id, description, filelist, response, true)
+        fs.readFile(`data/${filterId}`, 'utf8', function (err, description) {
+          template.page(filterId, description, filelist, response, !isOwner, true)
         })
       })
     }
 
+  } else if (pathname === '/login') {
+    fs.readdir('./data', function (err, filelist) {
+        template.page('Login', `
+      <form action="/login_process" method='post'>
+      <p><input type="text", placeholder="ID" name="id" /></p>
+      <p><input type="password", placeholder="PASSWORD" name="password" /></p>
+      <input type="submit">
+      </form>
+      `, filelist, response, !isOwner)
+    })
+  } else if (pathname === '/login_process') {
+    var body = '';
+    request.on('data', function (data) {
+      body += data;
+    })
+    request.on('end', function () {
+      var post = qs.parse(body);
+      if(post.id === 'beginal' && post.password === '111111') {
+        response.writeHead(302, {
+          'Set-Cookie':[
+            `id=${post.id}`,
+            `password=${post.password}`,
+          ],
+          Location: `/`
+        })
+        response.end();
+      } else {
+        response.end('Who?');
+      }
+      })
+  } else if (pathname === '/logout_process') {
+    isLoggedIn(response,isOwner)
+    var body = '';
+    request.on('data', function (data) {
+      body += data;
+    })
+    request.on('end', function () {
+      var post = qs.parse(body);
+        response.writeHead(302, {
+          'Set-Cookie':[
+            `id=; Max-Age=0`,
+            `password=; Max-Age=0`,
+          ],
+          Location: `/`
+        })
+        response.end();
+      
+      })
   } else if (pathname === '/create') {
+    isLoggedIn(response,isOwner)
     fs.readdir('./data', function (err, filelist) {
       template.page('Create', `
       <form action="/create_process" method='post'>
@@ -78,16 +107,17 @@ var app = http.createServer(function (request, response) {
       </p>
       <input type="submit">
       </form>
-      `, filelist, response)
+      `, filelist, response, !isOwner)
     })
   } else if (pathname === '/create_process') {
+    isLoggedIn(response,isOwner)
     var body = '';
     request.on('data', function (data) {
       body += data;
     })
     request.on('end', function () {
       var post = qs.parse(body);
-      var title = post.title;
+      var title = post.title
       var description = post.description
       fs.writeFile(`data/${title}`, description, 'utf8', function () {
         response.writeHead(302,
@@ -96,10 +126,12 @@ var app = http.createServer(function (request, response) {
       })
     })
 
-  } else if (pathname === '/update') {
+  } else if (pathname === '/update') {    
+    isLoggedIn(response,isOwner)
     fs.readdir('./data', function (err, filelist) {
-      fs.readFile(`data/${queryData.id}`, 'utf8', function (err, description) {
-        var title = queryData.id
+      var filterId = path.parse(queryData.id).base;
+      fs.readFile(`data/${filterId}`, 'utf8', function (err, description) {
+        var title = filterId
         template.page('Update', `
       <form action="/update_process" method='post'>
       <input type="hidden", name="id" value=${title} />
@@ -109,10 +141,11 @@ var app = http.createServer(function (request, response) {
       </p>
       <input type="submit">
       </form>
-      `, filelist, response)
+      `, filelist, response, !isOwner)
       })
     })
-  } else if (pathname === '/update_process') {
+  } else if (pathname === '/update_process') {    
+    isLoggedIn(response,isOwner)
     var body = ''
     request.on('data', function (data) {
       body += data
@@ -131,16 +164,16 @@ var app = http.createServer(function (request, response) {
       })
 
     })
-  } else if (pathname === '/delete_process') {
+  } else if (pathname === '/delete_process') {    
+    isLoggedIn(response,isOwner)
     var body = ''
     request.on('data', function (data) {
       body += data
     })
     request.on('end', function () {
       var post = qs.parse(body);
-      var id = post.id;
-      console.log(id)
-      fs.unlink(`data/${id}`, function (err) {
+      var filterId = path.parse(post.id).base;
+      fs.unlink(`data/${filterId}`, function (err) {
         if(err) {
           return console.log(err)
         }

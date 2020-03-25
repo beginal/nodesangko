@@ -1,0 +1,24 @@
+{
+  "name": "webnode",
+  "version": "1.0.0",
+  "description": "",
+  "main": "main.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/beginal/nodesangko.git"
+  },
+  "author": "JUN",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/beginal/nodesangko/issues"
+  },
+  "homepage": "https://github.com/beginal/nodesangko#readme",
+  "dependencies": {
+    "cookie": "^0.4.0",
+    "express": "^4.17.1",
+    "sanitize-html": "^1.22.1"
+  }
+}
